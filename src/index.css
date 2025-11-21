@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 5% 6%;
+    /* #0f0f10 */
+    --foreground: 0 0% 100%;
+    /* #ffffff */
+
+    --card: 240 4% 10%;
+    /* #18181a */
+    --card-foreground: 0 0% 100%;
+
+    --popover: 240 4% 10%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 180 100% 50%;
+    /* Cyan/Electric Blue */
+    --primary-foreground: 240 5% 6%;
+
+    --secondary: 240 4% 16%;
+    /* Lighter gray for hover/secondary */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+
+    --accent: 180 100% 50%;
+    --accent-foreground: 240 5% 6%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 180 100% 50%;
+
+    --radius: 0.5rem;
+  }
+
+  /* Force dark mode by default, can add .light later if needed but user wants Tidal-like */
+  .dark {
+    --background: 240 5% 6%;
+    --foreground: 0 0% 100%;
+    --card: 240 4% 10%;
+    --card-foreground: 0 0% 100%;
+    --popover: 240 4% 10%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 180 100% 50%;
+    --primary-foreground: 240 5% 6%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 180 100% 50%;
+    --accent-foreground: 240 5% 6%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 180 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
