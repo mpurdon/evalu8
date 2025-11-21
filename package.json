@@ -1,0 +1,57 @@
+{
+  "name": "evalu8",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "ts:electron": "tsc -p electron/tsconfig.json && mv dist-electron/main.js dist-electron/main.cjs && mv dist-electron/preload.js dist-electron/preload.cjs",
+    "electron:dev": "npm run ts:electron && concurrently \"npm run dev\" \"wait-on tcp:5173 && electron .\""
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "lucide-react": "^0.344.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.2.1",
+    "date-fns": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@typescript-eslint/eslint-plugin": "^7.1.1",
+    "@typescript-eslint/parser": "^7.1.1",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.18",
+    "concurrently": "^8.2.2",
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3",
+    "electron-is-dev": "^3.0.1",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.4",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.8x8.evalu8",
+    "productName": "Evalu8",
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  }
+}
