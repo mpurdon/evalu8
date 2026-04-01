@@ -1,10 +1,12 @@
 import React from 'react';
-import { Settings, Phone, FileText } from 'lucide-react';
+import { Settings, Phone, FileText, SearchIcon } from 'lucide-react';
+
+export type Tab = 'search' | 'settings' | 'evaluations' | 'phone';
 
 interface LayoutProps {
     children: React.ReactNode;
-    activeTab: 'search' | 'settings' | 'evaluations';
-    onTabChange: (tab: 'search' | 'settings' | 'evaluations') => void;
+    activeTab: Tab;
+    onTabChange: (tab: Tab) => void;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
@@ -39,10 +41,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                             : 'text-muted-foreground hover:text-white hover:bg-white/5'
                             }`}
                     >
-                        <Phone size={20} className={activeTab === 'search' ? 'text-primary' : 'group-hover:text-white transition-colors'} />
+                        <SearchIcon size={20} className={activeTab === 'search' ? 'text-primary' : 'group-hover:text-white transition-colors'} />
                         <span>Interactions</span>
                     </button>
-
+                    <button
+                        onClick={() => onTabChange('phone')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 group ${activeTab === 'phone'
+                            ? 'bg-white/10 text-white font-medium'
+                            : 'text-muted-foreground hover:text-white hover:bg-white/5'
+                            }`}
+                    >
+                        <Phone size={20} className={activeTab === 'phone' ? 'text-primary' : 'group-hover:text-white transition-colors'} />
+                        <span>Phone Lookup</span>
+                    </button>
                 </nav>
 
                 <div className="p-4 border-t border-white/5">

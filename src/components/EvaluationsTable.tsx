@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Evaluation } from '../services/api';
-import { FileText, User, Calendar, Hash, Percent, ArrowUp, ArrowDown } from 'lucide-react';
+import { FileText, User, Calendar, Percent, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface EvaluationsTableProps {
     evaluations: Evaluation[];

@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
-import { Layout } from './components/Layout';
+import { useState } from 'react';
+import { Layout, Tab } from './components/Layout';
 import { Settings } from './components/Settings';
 import { Search } from './components/Search';
 import { ResultsTable } from './components/ResultsTable';
 import { InteractionDetail } from './components/InteractionDetail';
 import { EvaluationsView } from './components/EvaluationsView';
+import { PhoneSearch } from './components/PhoneSearch';
 import { searchInteractions, getEvaluation, Evaluation, Interaction } from './services/api';
 import { AlertCircle, Copy, Check } from 'lucide-react';
 
 function App() {
-    const [activeTab, setActiveTab] = useState<'search' | 'settings' | 'evaluations'>('search');
+    const [activeTab, setActiveTab] = useState<Tab>('search');
     const [interactions, setInteractions] = useState<Interaction[]>([]);
     const [filteredInteractions, setFilteredInteractions] = useState<Interaction[]>([]);
     const [selectedInteraction, setSelectedInteraction] = useState<Interaction | null>(null);
@@ -39,9 +40,9 @@ function App() {
             const results = await searchInteractions(
                 { apiKey, apiSecret, region },
                 filters,
-                (count, total) => {
-                    setProgressCount(count);
-                    if (total) setTotalCount(total);
+                ({ scanned, totalWindows }) => {
+                    setProgressCount(scanned);
+                    if (totalWindows) setTotalCount(totalWindows);
                 }
             );
             setInteractions(results);
@@ -113,6 +114,11 @@ function App() {
             {/* Evaluations Tab */}
             <div style={{ display: activeTab === 'evaluations' ? 'block' : 'none', height: '100%' }}>
                 <EvaluationsView onSelectEvaluation={handleSelectEvaluation} />
+            </div>
+
+            {/* Phone Lookup Tab */}
+            <div style={{ display: activeTab === 'phone' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
+                <PhoneSearch onSelectInteraction={handleSelectInteraction} />
             </div>
 
             {/* Interactions Search Tab */}

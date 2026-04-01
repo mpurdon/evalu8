@@ -1,4 +1,4 @@
-# 8x8 API Desktop Tool
+# Evalu8: An 8x8 API Tool
 
 A cross-platform desktop application to interact with the 8x8 API, built with Electron, React, and TailwindCSS.
 
@@ -34,7 +34,7 @@ npm run build
 ## Configuration
 1. Launch the app.
 2. Go to **Settings**.
-3. Enter your 8x8 API Region (e.g., `us-west`) and Bearer Token.
+3. Enter your 8x8 API Region (e.g., `us-west`) and Credentials.
 4. Save configuration.
 
 ## Tech Stack

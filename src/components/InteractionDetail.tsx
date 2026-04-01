@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, Play, SkipBack, SkipForward, Pause, Download, FileText, Clock, Calendar, Loader2 } from 'lucide-react';
-import { Interaction, Evaluation, TranscriptSegment, getTranscript, getEvaluation, getInteraction, getAccessToken } from '../services/api';
+import { Interaction, Evaluation, TranscriptSegment, getTranscript, getEvaluation, getAccessToken } from '../services/api';
 import { format } from 'date-fns';
 
 interface InteractionDetailProps {
@@ -15,7 +15,6 @@ export const InteractionDetail: React.FC<InteractionDetailProps> = ({ interactio
     const [loadingTranscript, setLoadingTranscript] = useState(false);
     const [copiedId, setCopiedId] = useState(false);
 
-    const [fullInteraction, setFullInteraction] = useState<Interaction>(interaction);
     const [fullEvaluation, setFullEvaluation] = useState<Evaluation | null>(evaluation);
 
     useEffect(() => {
@@ -39,11 +38,7 @@ export const InteractionDetail: React.FC<InteractionDetailProps> = ({ interactio
                     setFullEvaluation(evalData);
                 }
 
-                // Fetch full interaction details
-                const interactionData = await getInteraction(config, interaction.interactionGuid);
-                setFullInteraction(interactionData);
-
-            } catch (error) {
+} catch (error) {
                 console.error('Failed to load details:', error);
             } finally {
                 setLoadingTranscript(false);

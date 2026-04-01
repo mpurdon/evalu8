@@ -93,139 +93,217 @@ export const getAccessToken = async (config: AuthConfig): Promise<string> => {
 
 export type Region = 'us-east-1' | 'us-west' | 'us-west-8x8' | 'uk' | 'us-west-stats' | 'us-east-stats';
 
-export const searchInteractions = async (config: AuthConfig, filters: any, onProgress?: (count: number, total?: number) => void): Promise<Interaction[]> => {
+// Handles: 555-123-4567, (555) 123-4567, 5551234567, +1 555 123 4567, etc.
+export const normalizePhoneNumber = (raw: string): string => {
+    const stripped = raw.trim().replace(/[^\d+]/g, '');
+    if (/^\+\d{7,15}$/.test(stripped)) return stripped;
+    const digits = stripped.replace(/\D/g, '');
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+    return `+${digits}`;
+};
+
+const formatDateTime = (date: Date): string => {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const formatDuration = (seconds: number): string => {
+    if (!seconds) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+const mapInteractionItem = (item: any): Interaction => ({
+    id: item.interactionGuid || item.id,
+    interactionGuid: item.interactionGuid,
+    agentName: item.agent?.name || item.agentName || 'Unknown Agent',
+    timestamp: item.createdAt || item.interactionTime || new Date().toISOString(),
+    queue: item.customFields?.customField17?.value || item.agent?.mainGroup || item.queueName || 'General',
+    direction: item.telephony?.direction || item.direction || 'inbound',
+    duration: formatDuration(item.media?.interactionDuration || 0),
+    telephony: item.telephony,
+    media: item.media,
+    speechAnalysis: item.speechAnalysis,
+    customFields: item.customFields,
+});
+
+export interface SearchProgress {
+    scanned: number;
+    windowStart: Date;
+    windowEnd: Date;
+    windowIndex: number;
+    totalWindows: number;
+}
+
+export const searchInteractions = async (
+    config: AuthConfig,
+    filters: any,
+    onProgress?: (progress: SearchProgress) => void,
+): Promise<Interaction[]> => {
     try {
         const token = await getAccessToken(config);
 
-        // Format dates for the new API (YYYY-MM-DD HH:MM:SS)
         const now = new Date();
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-        const endDate = filters.endDate ? new Date(filters.endDate) : now;
-        const startDate = filters.startDate ? new Date(filters.startDate) : sevenDaysAgo;
+        const overallEnd = filters.endDate ? new Date(filters.endDate) : now;
+        const overallStart = filters.maxLookback
+            ? new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000)
+            : (filters.startDate ? new Date(filters.startDate) : sevenDaysAgo);
 
-        // Helper to format date as YYYY-MM-DD HH:MM:SS
-        const formatDateTime = (date: Date) => {
-            const pad = (n: number) => n.toString().padStart(2, '0');
-            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-        };
-
-        const startTS = formatDateTime(startDate);
-        const endTS = formatDateTime(endDate);
-
-        let allInteractions: any[] = [];
-        let page = 1;
-        const limit = 50; // Default page size
-        const batchSize = 5; // Number of parallel requests
-        let hasMore = true;
-
-        let totalInteractions = 0;
-
-        // Loop to fetch all pages in batches
-        while (hasMore) {
-            const promises = [];
-            for (let i = 0; i < batchSize; i++) {
-                const currentPage = page + i;
-                const queryParams = new URLSearchParams({
-                    startTS: startTS,
-                    endTS: endTS,
-                    interactionType: 'voiceInteraction',
-                    page: currentPage.toString(),
-                    limit: limit.toString()
-                });
-
-                if (filters.interactionId) queryParams.append('interactionGuid', filters.interactionId);
-
-                const url = `https://api.8x8.com/qm/${config.region}/v1/interactions?${queryParams.toString()}`;
-                console.log(`Searching interactions (Page ${currentPage}): ${url}`);
-
-                promises.push(
-                    fetch(url, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'pbx': 'trajectordisabili',
-                            'Accept': 'application/json'
-                        }
-                    }).then(async res => {
-                        if (!res.ok) {
-                            const text = await res.text();
-                            console.warn(`Failed to fetch page ${currentPage}: ${res.status} ${text}`);
-                            return []; // Return empty on error to allow other pages to succeed
-                        }
-                        const data = await res.json();
-
-                        // Capture total if available (usually in the first response)
-                        if (data.total || data.totalElements) {
-                            const t = data.total || data.totalElements;
-                            if (t > totalInteractions) totalInteractions = t;
-                        }
-
-                        return Array.isArray(data) ? data : (data.interactions || data.content || []);
-                    })
-                );
+        // For phone lookups the API caps results at ~10,000 per query window.
+        // Split into monthly chunks, most-recent first, and run several concurrently.
+        const dateWindows: Array<{ start: Date; end: Date }> = [];
+        if (filters.phoneNumber) {
+            let chunkEnd = new Date(overallEnd);
+            while (chunkEnd > overallStart) {
+                const chunkStart = new Date(chunkEnd);
+                chunkStart.setMonth(chunkStart.getMonth() - 1);
+                if (chunkStart < overallStart) chunkStart.setTime(overallStart.getTime());
+                dateWindows.push({ start: new Date(chunkStart), end: new Date(chunkEnd) });
+                chunkEnd = new Date(chunkStart);
             }
-
-            const results = await Promise.all(promises);
-
-            let batchHasMore = true;
-            let batchCount = 0;
-
-            for (const content of results) {
-                if (content.length === 0) {
-                    batchHasMore = false;
-                } else {
-                    allInteractions = [...allInteractions, ...content];
-                    batchCount += content.length;
-                    if (content.length < limit) {
-                        batchHasMore = false;
-                    }
-                }
-            }
-
-            if (onProgress) {
-                onProgress(allInteractions.length, totalInteractions);
-            }
-
-            if (!batchHasMore) {
-                hasMore = false;
-            } else {
-                page += batchSize;
-            }
-
-            // Safety break
-            if (page > 100) {
-                console.warn('Reached max page limit (100), stopping fetch.');
-                hasMore = false;
-            }
+        } else {
+            dateWindows.push({ start: overallStart, end: overallEnd });
         }
 
-        console.log(`Total interactions fetched: ${allInteractions.length}`);
+        const pageSize = 50;
+        const batchSize = 5;
+        const windowConcurrency = 4; // parallel monthly windows
 
-        return allInteractions.map((item: any) => {
-            // Helper to format duration (seconds to MM:SS)
-            const formatDuration = (seconds: number) => {
-                if (!seconds) return '00:00';
-                const mins = Math.floor(seconds / 60);
-                const secs = Math.floor(seconds % 60);
-                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            };
+        const phoneFilterFn = filters.phoneNumber
+            ? (() => {
+                const targetLast10 = filters.phoneNumber.replace(/\D/g, '').slice(-10);
+                return (item: any) => {
+                    const callerLast10 = item.telephony?.callerPhoneNumber ? String(item.telephony.callerPhoneNumber).replace(/\D/g, '').slice(-10) : null;
+                    const dialedLast10 = item.telephony?.dialedPhoneNumber ? String(item.telephony.dialedPhoneNumber).replace(/\D/g, '').slice(-10) : null;
+                    return callerLast10 === targetLast10 || dialedLast10 === targetLast10;
+                };
+            })()
+            : null;
 
-            return {
-                id: item.interactionGuid || item.id,
-                interactionGuid: item.interactionGuid,
-                agentName: item.agent?.name || item.agentName || 'Unknown Agent',
-                timestamp: item.createdAt || item.interactionTime || new Date().toISOString(),
-                queue: item.customFields?.customField17?.value || item.agent?.mainGroup || item.queueName || 'General',
-                direction: item.telephony?.direction || item.direction || 'inbound',
-                duration: formatDuration(item.media?.interactionDuration || 0),
-                // Map new fields
-                telephony: item.telephony,
-                media: item.media,
-                speechAnalysis: item.speechAnalysis,
-                customFields: item.customFields
-            };
-        });
+        const fetchPage = async (startTS: string, endTS: string, currentPage: number, attempt = 1): Promise<any[]> => {
+            const queryParams = new URLSearchParams({
+                startTS,
+                endTS,
+                interactionType: 'voiceInteraction',
+                page: currentPage.toString(),
+                limit: pageSize.toString(),
+            });
+
+            if (filters.interactionId) queryParams.append('interactionGuid', filters.interactionId);
+
+            const url = `https://api.8x8.com/qm/${config.region}/v1/interactions?${queryParams.toString()}`;
+
+            let res: Response;
+            try {
+                res = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'pbx': 'trajectordisabili',
+                        'Accept': 'application/json',
+                    },
+                });
+            } catch (networkErr) {
+                if (attempt <= 3) {
+                    const delay = 500 * Math.pow(2, attempt - 1);
+                    await new Promise(r => setTimeout(r, delay));
+                    return fetchPage(startTS, endTS, currentPage, attempt + 1);
+                }
+                throw networkErr;
+            }
+
+            if (!res.ok) {
+                if (attempt <= 3 && res.status >= 500) {
+                    const delay = 500 * Math.pow(2, attempt - 1);
+                    await new Promise(r => setTimeout(r, delay));
+                    return fetchPage(startTS, endTS, currentPage, attempt + 1);
+                }
+                const text = await res.text();
+                throw new Error(`Page ${currentPage}: ${res.status} ${text}`);
+            }
+
+            const data = await res.json();
+            return Array.isArray(data) ? data : (data.interactions || data.content || []);
+        };
+
+        const matched: Interaction[] = [];
+        let totalScanned = 0;
+        // Only report progress from the window furthest along (highest index = furthest back in time).
+        // This prevents jitter from faster/slower concurrent windows jumping the bar backwards.
+        let forerunnerIndex = -1;
+
+        const processWindow = async (period: { start: Date; end: Date }, windowIndex: number) => {
+            const startTS = formatDateTime(period.start);
+            const endTS = formatDateTime(period.end);
+            let page = 1;
+            let hasMore = true;
+
+            while (hasMore) {
+                const promises: Promise<any[] | null>[] = [];
+                for (let i = 0; i < batchSize; i++) {
+                    const currentPage = page + i;
+                    promises.push(fetchPage(startTS, endTS, currentPage).catch(err => {
+                        console.error(`Giving up on page ${currentPage}:`, err);
+                        return null;
+                    }));
+                }
+
+                const results = await Promise.all(promises);
+                let batchHasMore = true;
+                let batchScanned = 0;
+
+                for (const content of results) {
+                    if (content === null) {
+                        batchHasMore = false;
+                    } else if (content.length === 0) {
+                        batchHasMore = false;
+                    } else {
+                        batchScanned += content.length;
+                        for (const item of content) {
+                            if (!phoneFilterFn || phoneFilterFn(item)) {
+                                matched.push(mapInteractionItem(item));
+                            }
+                        }
+                        if (content.length < pageSize) batchHasMore = false;
+                    }
+                }
+
+                if (batchScanned > 0) {
+                    totalScanned += batchScanned;
+                    // Only emit if this window is the new forerunner (furthest back in time)
+                    if (windowIndex > forerunnerIndex) {
+                        forerunnerIndex = windowIndex;
+                        onProgress?.({
+                            scanned: totalScanned,
+                            windowStart: period.start,
+                            windowEnd: period.end,
+                            windowIndex,
+                            totalWindows: dateWindows.length,
+                        });
+                    }
+                }
+
+                if (!batchHasMore) {
+                    hasMore = false;
+                } else {
+                    page += batchSize;
+                    if (page > 200) hasMore = false;
+                }
+            }
+        };
+
+        // Process windows in concurrent groups
+        for (let i = 0; i < dateWindows.length; i += windowConcurrency) {
+            const group = dateWindows.slice(i, i + windowConcurrency);
+            await Promise.all(group.map((period, j) => processWindow(period, i + j)));
+        }
+
+        console.log(`[phone filter] ${matched.length} matched out of ${totalScanned} scanned`);
+        return matched;
 
     } catch (error) {
         console.error('API Service Error:', error);
@@ -237,18 +315,11 @@ export const searchEvaluations = async (config: AuthConfig, filters: any): Promi
     try {
         const token = await getAccessToken(config);
 
-        // Format dates for the new API (YYYY-MM-DD HH:MM:SS)
         const now = new Date();
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
         const endDate = filters.endDate ? new Date(filters.endDate) : now;
         const startDate = filters.startDate ? new Date(filters.startDate) : sevenDaysAgo;
-
-        // Helper to format date as YYYY-MM-DD HH:MM:SS
-        const formatDateTime = (date: Date) => {
-            const pad = (n: number) => n.toString().padStart(2, '0');
-            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-        };
 
         const startTS = formatDateTime(startDate);
         const endTS = formatDateTime(endDate);
@@ -424,24 +495,7 @@ export const getInteraction = async (config: AuthConfig, interactionGuid: string
         }
 
         const item = await response.json();
-
-        // Helper to format duration (seconds to MM:SS)
-        const formatDuration = (seconds: number) => {
-            if (!seconds) return '00:00';
-            const mins = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        };
-
-        return {
-            id: item.interactionGuid || item.id,
-            interactionGuid: item.interactionGuid,
-            agentName: item.agent?.name || item.agentName || 'Unknown Agent',
-            timestamp: item.createdAt || item.interactionTime || new Date().toISOString(),
-            queue: item.customFields?.customField17?.value || item.agent?.mainGroup || item.queueName || 'General',
-            direction: item.telephony?.direction || item.direction || 'inbound',
-            duration: formatDuration(item.media?.interactionDuration || 0)
-        };
+        return mapInteractionItem(item);
     } catch (error) {
         console.error('API Error:', error);
         throw error;
